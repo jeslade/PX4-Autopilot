@@ -55,20 +55,7 @@ EKF2Selector::~EKF2Selector()
 
 bool EKF2Selector::Start()
 {
-	// default to first instance
-	_selected_instance = 0;
-
-	if (!_instance[0].estimator_status_sub.registerCallback()) {
-		PX4_ERR("estimator status callback registration failed");
-	}
-
-	if (!_instance[0].estimator_attitude_sub.registerCallback()) {
-		PX4_ERR("estimator attitude callback registration failed");
-	}
-
-	// backup schedule
-	ScheduleDelayed(10_ms);
-
+	ScheduleNow();
 	return true;
 }
 
@@ -483,6 +470,18 @@ void EKF2Selector::Run()
 
 	// update combined test ratio for all estimators
 	const bool updated = UpdateErrorScores();
+
+	// if no valid instance selected then select instance with valid IMU
+	if (_selected_instance == INVALID_INSTANCE) {
+		for (int ekf_instance = 0; ekf_instance < EKF2_MAX_INSTANCES; ekf_instance++) {
+			if ((_instance[ekf_instance].estimator_status.accel_device_id != 0)
+			    && (_instance[ekf_instance].estimator_status.gyro_device_id != 0)) {
+
+				SelectInstance(ekf_instance);
+				break;
+			}
+		}
+	}
 
 	if (updated) {
 		bool lower_error_available = false;
