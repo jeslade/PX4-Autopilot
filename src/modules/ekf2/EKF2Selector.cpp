@@ -55,20 +55,7 @@ EKF2Selector::~EKF2Selector()
 
 bool EKF2Selector::Start()
 {
-	// default to first instance
-	_selected_instance = 0;
-
-	if (!_instance[0].estimator_status_sub.registerCallback()) {
-		PX4_ERR("estimator status callback registration failed");
-	}
-
-	if (!_instance[0].estimator_attitude_sub.registerCallback()) {
-		PX4_ERR("estimator attitude callback registration failed");
-	}
-
-	// backup schedule
-	ScheduleDelayed(10_ms);
-
+	ScheduleNow();
 	return true;
 }
 
@@ -484,6 +471,23 @@ void EKF2Selector::Run()
 	// update combined test ratio for all estimators
 	const bool updated = UpdateErrorScores();
 
+	// if no valid instance selected then select instance with valid IMU
+	if (_selected_instance == INVALID_INSTANCE) {
+		for (uint8_t i = 0; i < EKF2_MAX_INSTANCES; i++) {
+			if ((_instance[i].estimator_status.accel_device_id != 0)
+			    && (_instance[i].estimator_status.gyro_device_id != 0)) {
+
+				SelectInstance(i);
+				break;
+			}
+		}
+
+		// if still invalid return early and check again soon
+		if (_selected_instance == INVALID_INSTANCE) {
+			return;
+		}
+	}
+
 	if (updated) {
 		bool lower_error_available = false;
 		float alternative_error = 0.f; // looking for instances that have error lower than the current primary
@@ -513,10 +517,8 @@ void EKF2Selector::Run()
 			}
 		}
 
-		if ((_selected_instance == INVALID_INSTANCE)
-		    || (!_instance[_selected_instance].healthy && (best_ekf_instance == _selected_instance))) {
-
-			// force initial selection
+		if (!_instance[_selected_instance].healthy && (best_ekf_instance == _selected_instance)) {
+			// force selection to best healthy instance
 			uint8_t best_instance = _selected_instance;
 			float best_test_ratio = FLT_MAX;
 
